@@ -1,19 +1,51 @@
-from fastapi import FastAPI
-from time import time
-from .middleware import logging_middleware
+import time
+from fastapi import FastAPI, Request
+from app.metrics import metrics
+from app.health import intelligent_health
 
-app = FastAPI()
+# -----------------------------------------------------------------------------
+# App Init
+# -----------------------------------------------------------------------------
+app = FastAPI(
+    title="Intelligent Deploy",
+    version="0.1.0",
+)
 
-app.add_middleware(logging_middleware)
+# -----------------------------------------------------------------------------
+# Metrics Middleware
+# -----------------------------------------------------------------------------
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
 
-START_TIME = time()
-APP_VERSION = "0.1.0"
+    latency_ms = (time.time() - start) * 1000
+    is_error = response.status_code >= 500
 
+    metrics.record_request(latency_ms, is_error)
+    return response
 
-@app.get("/health")
+# -----------------------------------------------------------------------------
+# Health Endpoints
+# -----------------------------------------------------------------------------
+@app.get("/health", tags=["health"])
 def health():
+    """
+    Liveness check (Alive / Dead)
+    Used by Docker, K8s liveness probes.
+    """
     return {
         "status": "ok",
-        "uptime_sec": round(time() - START_TIME, 2),
-        "version": APP_VERSION,
+        "uptime_sec": round(metrics.uptime_sec(), 2),
+        "version": "0.1.0",
     }
+
+
+@app.get("/health/intelligent", tags=["health"])
+def health_intelligent():
+    """
+    Decision‑ready health endpoint.
+    Used by CI/CD, Progressive Delivery, Auto‑Rollback.
+    """
+    return intelligent_health()
+
