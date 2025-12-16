@@ -7,26 +7,91 @@ on:
     branches: [ "master" ]
 
 jobs:
-  build:
+  build-and-guard:
     runs-on: ubuntu-latest
 
     steps:
+    # ----------------------------------------------------
+    # 1. Checkout Source Code
+    # ----------------------------------------------------
     - name: Checkout source
       uses: actions/checkout@v4
 
+    # ----------------------------------------------------
+    # 2. Setup Python Environment
+    # ----------------------------------------------------
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
 
+    # ----------------------------------------------------
+    # 3. Install Dependencies
+    # ----------------------------------------------------
     - name: Install dependencies
       run: |
+        python -m pip install --upgrade pip
         pip install -r requirements.txt
 
+    # ----------------------------------------------------
+    # 4. Syntax Check (Fail Fast)
+    # ----------------------------------------------------
     - name: Syntax check
       run: |
-        python -m py_compile main.py
+        python -m py_compile app/main.py
+        python -m py_compile app/health.py
+        python -m py_compile app/metrics.py
 
+    # ----------------------------------------------------
+    # 5. Docker Build
+    # ----------------------------------------------------
     - name: Docker build
       run: |
         docker build -t intelligent-deploy-ci .
+
+    # ----------------------------------------------------
+    # 6. Run Container (for Health Validation)
+    # ----------------------------------------------------
+    - name: Run container for health check
+      run: |
+        docker run -d -p 8000:8000 --name intelligent-app intelligent-deploy-ci
+        sleep 35
+
+    # ----------------------------------------------------
+    # 7. Intelligent Health Guard (Decision Gate)
+    # ----------------------------------------------------
+    - name: Intelligent Health Guard
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq
+
+        RESPONSE=$(curl -s http://localhost:8000/health/intelligent || echo "FAIL")
+        echo "Health response: $RESPONSE"
+
+        if [ "$RESPONSE" = "FAIL" ]; then
+          echo "❌ Health endpoint not reachable"
+          exit 1
+        fi
+
+        DEGRADED=$(echo $RESPONSE | jq -r '.degraded')
+        READY=$(echo $RESPONSE | jq -r '.decision_ready')
+
+        if [ "$DEGRADED" != "false" ]; then
+          echo "❌ Service is degraded — blocking pipeline"
+          exit 1
+        fi
+
+        if [ "$READY" != "true" ]; then
+          echo "❌ Health decision is not ready — blocking pipeline"
+          exit 1
+        fi
+
+        echo "✅ Intelligent health guard passed"
+
+    # ----------------------------------------------------
+    # 8. Cleanup
+    # ----------------------------------------------------
+    - name: Cleanup container
+      if: always()
+      run: |
+        docker rm -f intelligent-app || true
