@@ -45,31 +45,14 @@ jobs:
     # ----------------------------------------------------
     # 5. Docker Build (latest)
     # ----------------------------------------------------
-    - name: Docker build(latest)
+    - name: Docker build (latest)
       run: |
         docker build -t intelligent-deploy:latest .
 
     # ----------------------------------------------------
-    # 6. Install jq
+    # 6. Auto-Rollback Guard (Health-Based)
     # ----------------------------------------------------
-    - name: Install jq
+    - name: Auto-Rollback Guard (Health-Based)
       run: |
-        sudo apt-get update
-        sudo apt-get install -y jq
-
-    # ----------------------------------------------------
-    # 7. Auto-Rollback Health Validation
-    # ----------------------------------------------------
-    - name: Auto-Rollback Guard
-      run: |
-        
         chmod +x scripts/auto_rollback.sh
         ./scripts/auto_rollback.sh
-
-    # ----------------------------------------------------
-    # 8. Cleanup
-    # ----------------------------------------------------
-    - name: Cleanup container
-      if: always()
-      run: |
-        docker rm -f intelligent-app || true
